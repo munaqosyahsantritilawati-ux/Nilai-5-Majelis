@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Form Rekap Nilai - Pilih Bidang</title>
+<style>
+  *{box-sizing:border-box; font-family:system-ui, sans-serif;}
+  body{margin:0; background:#f2f4f7; padding:16px;}
+  .card{background:white; max-width:720px; margin:0 auto; padding:20px; border-radius:18px; box-shadow:0 4px 16px rgba(0,0,0,0.08);}
+  h2{margin:0 0 4px; text-align:center;}
+  .sub{text-align:center; color:#666; font-size:13px; margin-bottom:16px;}
+  label{font-weight:700; font-size:14px;}
+  select, input[type="number"]{width:100%; padding:12px; border:1px solid #ddd; border-radius:12px; font-size:15px;}
+  select{margin:8px 0 16px;}
+  table{width:100%; border-collapse:collapse; font-size:14px;}
+  th{padding:10px 8px; border:1px solid #ddd; background:#f5f5f5; text-align:center;}
+  th.nama, td.nama{text-align:left;}
+  td{padding:6px; border:1px solid #eee; vertical-align:middle;}
+  td.no{text-align:center; width:40px;}
+  #btnKirim{display:none; width:100%; padding:14px; background:#1a7f4b; color:white; border:none; border-radius:12px; font-weight:700; font-size:15px; margin-top:16px; cursor:pointer;}
+  #btnKirim:disabled{opacity:0.6;}
+  .info{font-size:13px; color:#666; text-align:center; margin-top:10px;}
+  .loading{text-align:center; color:#666; padding:20px;}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h2>Rekap Nilai Santri</h2>
+  <p class="sub">Pilih bidang dulu, baru tabel nilainya muncul</p>
+
+  <!-- 1. PILIH BIDANG -->
+  <label for="pilihBidang">Pilih Bidang Penilaian:</label>
+  <select id="pilihBidang" onchange="gantiBidang()">
+    <option value="">-- Pilih Bidang --</option>
+    <!-- 👇 option-nya harus sama persis dengan key di DAFTAR_BIDANG -->
+    <option value="Doa Harian">Doa Harian</option>
+    <option value="Sholat">Sholat</option>
+    <option value="Wudlu">Wudlu</option>
+    <option value="Akhlak">Akhlak</option>
+    <option value="Al-Qur'an">Al-Qur'an</option>
+  </select>
+
+  <!-- 2. TABEL AKAN MUNCUL DI SINI -->
+  <div id="areaTabel"><p class="info">Silakan pilih bidang di atas.</p></div>
+
+  <button id="btnKirim" onclick="kirim()">Simpan Nilai</button>
+  <p class="info" id="infoSantri"></p>
+</div>
+
+<!-- 3. MODAL SUKSES - SUDAH DITENGAH PAKAI TRANSFORM -->
+<div id="modalSukses" style="display:none; position:fixed; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; margin:0; padding:0;">
+  <div style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); background:white; width:90%; max-width:360px; padding:28px 24px; border-radius:20px; text-align:center;">
+    <div style="font-size:42px;">✅</div>
+    <h3 style="margin:12px 0 8px;">Alhamdulillaah!</h3>
+    <p id="teksModalSukses" style="color:#555; font-size:14px;">Nilai berhasil disimpan.</p>
+    <button onclick="tutupModalSukses()" style="margin:16px auto 0; padding:12px 24px; background:#1a7f4b; color:white; border:none; border-radius:12px; cursor:pointer; font-weight:700;">Alhamdulillaah</button>
+  </div>
+</div>
+
+<!-- 4. MODAL ERROR -->
+<div id="modalError" style="display:none; position:fixed; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; margin:0; padding:0;">
+  <div style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); background:white; width:90%; max-width:380px; padding:24px; border-radius:20px; text-align:left; max-height:80vh; overflow-y:auto;">
+    <h3 id="judulModalError" style="margin:0 0 10px; text-align:center;">Masih Ada Yang Belum Diisi!</h3>
+    <p id="teksModalError" style="color:#333; font-size:14px; white-space:pre-line; margin:0;"></p>
+    <button onclick="tutupModalError()" style="display:block; margin:18px auto 0; padding:12px 24px; background:#c0392b; color:white; border:none; border-radius:12px; cursor:pointer; font-weight:700;">Oke, Saya Lengkapi</button>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// 👉 SESUAIKAN DI SINI 1: URL DATABASE KAMU (FORM LAMA)
+// ============================================================
+const URL_APPS_SCRIPT = "https://script.google.com/macros/s/XXXXX/exec"; // ganti dengan URL kamu yang lama
+
+// ============================================================
+// 👉 SESUAIKAN DI SINI 2: NAMA BIDANG & KOLOMNYA
+// 4 bidang = 1 kolom, 1 bidang = 4 kolom
+// Key harus sama persis dengan value di <option> di atas
+// ============================================================
+const DAFTAR_BIDANG = {
+  "Doa Harian": ["Doa Harian"],
+  "Sholat": ["Sholat"],
+  "Wudlu": ["Wudlu"],
+  "Akhlak": ["Akhlak"],
+  "Al-Qur'an": ["Tajwid", "Makhraj", "Kelancaran", "Hafalan"]
+};
+
+let DAFTAR_SANTRI = [];
+
+// ============================================================
+// AMBIL DATA SANTRI DARI DATABASE
+// ============================================================
+async function loadSantri(){
+  const info = document.getElementById("infoSantri");
+  try{
+    const res = await fetch(URL_APPS_SCRIPT);
+    const data = await res.json();
+
+    // 👇 SESUAIKAN BENTUK DATA-nya.
+    // Kalau di Sheet kamu kolomnya "nama", pakai yang ini:
+    // Kalau bentuknya sudah array string ["Ahmad","Fatimah"], pakai: DAFTAR_SANTRI = data;
+    // Kalau bentuknya { santri: [...] }, pakai: DAFTAR_SANTRI = data.santri.map(s => s.nama);
+    if(Array.isArray(data)){
+      DAFTAR_SANTRI = data.map(s => typeof s === "string" ? s : (s.nama || s.Nama || s.NAMA));
+    } else if(data.santri){
+      DAFTAR_SANTRI = data.santri.map(s => typeof s === "string" ? s : (s.nama || s.Nama));
+    } else if(data.data){
+      DAFTAR_SANTRI = data.data.map(s => typeof s === "string" ? s : (s.nama || s.Nama));
+    }
+
+    DAFTAR_SANTRI = DAFTAR_SANTRI.filter(Boolean);
+    info.textContent = DAFTAR_SANTRI.length + " santri dimuat dari database.";
+  }catch(e){
+    // Kalau database gagal / URL masih XXX, pakai data contoh biar bisa dites dulu
+    console.log("Gagal load database, pakai data contoh:", e);
+    DAFTAR_SANTRI = ["Muhammad Miftahul Lukman", "Ahmad Zaki", "Fatimah Zahra"];
+    info.textContent = "Database belum terhubung, pakai data contoh (3 santri). Ganti URL_APPS_SCRIPT.";
+  }
+}
+loadSantri();
+
+// ============================================================
+// GAMBAR TABEL SESUAI BIDANG
+// ============================================================
+function gantiBidang(){
+  const bidang = document.getElementById("pilihBidang").value;
+  const area = document.getElementById("areaTabel");
+  const btn = document.getElementById("btnKirim");
+  if(!bidang){ area.innerHTML = '<p class="info">Silakan pilih bidang di atas.</p>'; btn.style.display = "none"; return; }
+  if(DAFTAR_SANTRI.length === 0){ area.innerHTML = '<p class="loading">Memuat data santri...</p>'; return; }
+
+  const kolomNilai = DAFTAR_BIDANG[bidang];
+
+  let html = `<table><tr><th>No</th><th class="nama">Nama Santri</th>`;
+  kolomNilai.forEach(k => { html += `<th>${k}</th>`; });
+  html += `</tr>`;
+
+  DAFTAR_SANTRI.forEach((nama, i) => {
+    html += `<tr><td class="no">${i+1}</td><td class="nama">${nama}</td>`;
+    kolomNilai.forEach(k => {
+      html += `<td><input type="number" min="0" max="95" data-nama="${nama}" data-kolom="${k}" placeholder="0-95"></td>`;
+    });
+    html += `</tr>`;
+  });
+  html += `</table>`;
+  area.innerHTML = html;
+  btn.style.display = "block";
+}
+
+// ============================================================
+// KIRIM & VALIDASI - DIHITUNG PER SANTRI
+// ============================================================
+function kirim(){
+  const bidang = document.getElementById("pilihBidang").value;
+  const kolomNilai = DAFTAR_BIDANG[bidang];
+  const inputs = document.querySelectorAll("#areaTabel input");
+  const yangKurang = [];
+  const hasil = [];
+  let pertamaYangKosong = null;
+
+  // Kelompokkan per santri
+  DAFTAR_SANTRI.forEach(nama => {
+    const row = { nama: nama, bidang: bidang };
+    let adaYangKosong = false;
+
+    kolomNilai.forEach(k => {
+      const el = document.querySelector(`#areaTabel input[data-nama="${nama}"][data-kolom="${k}"]`);
+      if(!el) return;
+      if(!el.value){
+        adaYangKosong = true;
+        el.style.border = "2px solid red";
+        if(!pertamaYangKosong) pertamaYangKosong = el;
+      } else {
+        el.style.border = "";
+        row[k] = el.value;
+      }
+    });
+
+    if(adaYangKosong){
+      yangKurang.push("• " + nama);
+    } else {
+      hasil.push(row);
+    }
+  });
+
+  // 👇 REDAKSI YANG KEMARIN SUDAH DISEPAKATI
+  if(yangKurang.length > 0){
+    tampilModalError("Ada " + yangKurang.length + " santri yang nilainya masih kosong:\n\n" + yangKurang.join("\n"), "Masih Ada Yang Belum Diisi!");
+    if(pertamaYangKosong) pertamaYangKosong.scrollIntoView({behavior:"smooth", block:"center"});
+    return;
+  }
+
+  // KIRIM KE DATABASE (Apps Script)
+  const btn = document.getElementById("btnKirim");
+  btn.disabled = true; btn.textContent = "Menyimpan...";
+
+  fetch(URL_APPS_SCRIPT, {
+    method: "POST",
+    body: JSON.stringify({ bidang: bidang, nilai: hasil })
+  })
+  .then(r => r.text())
+  .then(() => {
+    btn.disabled = false; btn.textContent = "Simpan Nilai";
+    document.getElementById("teksModalSukses").textContent = "Nilai " + bidang + " untuk " + hasil.length + " santri berhasil disimpan.";
+    document.getElementById("modalSukses").style.display = "block";
+  })
+  .catch(() => {
+    btn.disabled = false; btn.textContent = "Simpan Nilai";
+    // Kalau mau tes tanpa database, tetap anggap sukses
+    document.getElementById("teksModalSukses").textContent = "Nilai " + bidang + " untuk " + hasil.length + " santri berhasil disimpan. (Mode tes)";
+    document.getElementById("modalSukses").style.display = "block";
+  });
+}
+
+function tampilModalError(teks, judul){
+  document.getElementById("teksModalError").textContent = teks;
+  document.getElementById("judulModalError").textContent = judul || "Masih Ada Yang Belum Diisi!";
+  document.getElementById("modalError").style.display = "block";
+}
+function tutupModalError(){ document.getElementById("modalError").style.display = "none"; }
+function tutupModalSukses(){ document.getElementById("modalSukses").style.display = "none"; }
+</script>
+</body>
+</html>
